@@ -62,3 +62,19 @@ export const ROUTER_V2_ABI = [
   { constant: true, inputs: [{ name: "amountIn", type: "uint256" }, { name: "path", type: "address[]" }], name: "getAmountsOut", outputs: [{ name: "amounts", type: "uint256[]" }], stateMutability: "view", type: "function" },
   { constant: false, inputs: [{ name: "amountOutMin", type: "uint256" }, { name: "path", type: "address[]" }, { name: "to", type: "address" }, { name: "deadline", type: "uint256" }], name: "swapExactETHForTokensSupportingFeeOnTransferTokens", outputs: [], stateMutability: "payable", type: "function" },
 ] as const;
+
+export const SUI_NETWORKS = {
+  mainnet: {
+    // QuickNode mainnet (bạn cung cấp)
+    rpc: "https://necessary-cool-waterfall.sui-mainnet.quiknode.pro/f965569b37ae159010d579b803fdbcb2042f4091",
+    explorerTx: (digest: string) => `https://suivision.xyz/txblock/${digest}`,
+  },
+  testnet: {
+    // Testnet: QuickNode không hỗ trợ → dùng public
+    rpc: "https://fullnode.testnet.sui.io:443",
+    explorerTx: (digest: string) => `https://suivision.xyz/txblock/${digest}?network=testnet`,
+  },
+} as const;
+export type SuiNetKey = keyof typeof SUI_NETWORKS;
+
+export const SUI_COIN_TYPE = "0x2::sui::SUI";
