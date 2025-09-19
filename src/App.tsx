@@ -2,11 +2,22 @@
 import React, { useState } from "react";
 import BscSwap from "./BscSwap";
 import SolSwap from "./SolSwap";
+import SuiSwapCetus from "./SuiSwapCetus";
 
-type TabKey = "sol" | "bsc";
+
+type TabKey = "sol" | "bsc" | "sui";
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("sol");
+  const renderSwap = () => {
+    if (activeTab === "sol") {
+      return <SolSwap />;
+    } else if (activeTab === "bsc") {
+      return <BscSwap />;
+    } else {
+      return <SuiSwapCetus />;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-600 to-green-700 flex items-start justify-center p-4">
@@ -25,10 +36,16 @@ function App() {
           >
             BNB · Pancake V2
           </button>
+          <button
+            onClick={() => setActiveTab("sui")}
+            className={`flex-1 py-3 text-center font-medium ${activeTab === "sui" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
+          >
+            SUI · Cetus
+          </button>
         </div>
 
         {/* Tab content */}
-        {activeTab === "sol" ? <SolSwap /> : <BscSwap />}
+        {renderSwap()}
       </div>
     </div>
   );
