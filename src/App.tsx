@@ -38,7 +38,7 @@ function App() {
           </button>
           <button
             onClick={() => setActiveTab("sui")}
-            className={`flex-1 py-3 text-center font-medium ${activeTab === "bsc" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
+            className={`flex-1 py-3 text-center font-medium ${activeTab === "sui" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
           >
             SUI · Cetus
           </button>
