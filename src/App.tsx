@@ -3,9 +3,10 @@ import React, { useState } from "react";
 import BscSwap from "./BscSwap";
 import SolSwap from "./SolSwap";
 import SuiSwapCetus from "./SuiSwapCetus";
+import MultiSend from "./MultiSend";
 
 
-type TabKey = "sol" | "bsc" | "sui";
+type TabKey = "sol" | "bsc" | "sui" | "multi";
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("sol");
@@ -15,7 +16,8 @@ function App() {
     } else if (activeTab === "bsc") {
       return <BscSwap />;
     } else {
-      return <SuiSwapCetus />;
+      if (activeTab === "sui") return <SuiSwapCetus />;
+      return <MultiSend />;
     }
   };
 
@@ -41,6 +43,12 @@ function App() {
             className={`flex-1 py-3 text-center font-medium ${activeTab === "sui" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
           >
             SUI · Cetus
+          </button>
+          <button
+            onClick={() => setActiveTab("multi")}
+            className={`flex-1 py-3 text-center font-medium ${activeTab === "multi" ? "bg-white text-green-900" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
+          >
+            Multi Send
           </button>
         </div>
 
