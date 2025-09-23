@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import bs58 from "bs58";
+import { Buffer } from "buffer";
 import {
   Connection,
   Keypair,
@@ -116,6 +117,82 @@ const normalizeEvmPrivateKey = (raw: string) => {
 const uniqueTokens = (tokens: string[]) => {
   const set = new Set(tokens.map((t) => t.trim()).filter(Boolean));
   return Array.from(set);
+};
+
+const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+
+type SolTokenMetadata = {
+  name?: string;
+  symbol?: string;
+};
+
+const metadataCache = new Map<string, SolTokenMetadata | null>();
+
+const readRustString = (buffer: Buffer, offset: number) => {
+  if (buffer.length < offset + 4) {
+    return { value: "", offset };
+  }
+  const len = buffer.readUInt32LE(offset);
+  let cursor = offset + 4;
+  const end = cursor + len;
+  if (buffer.length < end) {
+    const value = buffer.slice(cursor).toString("utf8").replace(/\0/g, "").trim();
+    return { value, offset: buffer.length };
+  }
+  const value = buffer.slice(cursor, end).toString("utf8").replace(/\0/g, "").trim();
+  return { value, offset: end };
+};
+
+const fetchSolTokenMetadata = async (
+  conn: Connection,
+  mint: PublicKey
+): Promise<SolTokenMetadata | null> => {
+  const key = mint.toBase58();
+  if (metadataCache.has(key)) {
+    return metadataCache.get(key) ?? null;
+  }
+
+  try {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("metadata"), TOKEN_METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+      TOKEN_METADATA_PROGRAM_ID
+    );
+    const account = await conn.getAccountInfo(pda, "confirmed");
+    if (!account) {
+      metadataCache.set(key, null);
+      return null;
+    }
+
+    const buffer = Buffer.from(account.data);
+    if (buffer.length < 66) {
+      metadataCache.set(key, null);
+      return null;
+    }
+
+    let cursor = 1 + 32 + 32; // key + updateAuthority + mint
+    const nameRes = readRustString(buffer, cursor);
+    cursor = nameRes.offset;
+    const symbolRes = readRustString(buffer, cursor);
+
+    const metadata: SolTokenMetadata = {
+      name: nameRes.value,
+      symbol: symbolRes.value,
+    };
+    metadataCache.set(key, metadata);
+    return metadata;
+  } catch (err) {
+    console.warn("Failed to fetch metadata for", key, err);
+    metadataCache.set(key, null);
+    return null;
+  }
+};
+
+const formatMintLabel = (mint: string, metadata: SolTokenMetadata | null | undefined) => {
+  const symbol = metadata?.symbol?.trim();
+  if (symbol) return symbol;
+  const name = metadata?.name?.trim();
+  if (name) return name;
+  return shortAddress(mint, 4, 4);
 };
 
 export default function MultiSend() {
@@ -293,7 +370,6 @@ export default function MultiSend() {
     }
 
     const requestedTokens = candidate.tokens.map((t) => t.trim()).filter(Boolean);
-    appendLog(requestedTokens.length)
     if (requestedTokens.length > 0) {
       for (const token of requestedTokens) {
         if (token.toUpperCase() === "SOL") continue;
@@ -313,10 +389,19 @@ export default function MultiSend() {
           }
           const formatted = decimals >= 0 ? formatTokenAmount(total, decimals) : total.toString();
           if (total > 0n) {
+            let metadata: SolTokenMetadata | null = null;
+            try {
+              metadata = await fetchSolTokenMetadata(conn, mint);
+            } catch (metaErr: any) {
+              appendLog(
+                `Không lấy được metadata cho ${mint.toBase58()}: ${metaErr?.message || String(metaErr)}`
+              );
+            }
+            const label = formatMintLabel(mint.toBase58(), metadata);
             tokens.push({
               id: `${candidate.id}-${mint.toBase58()}`,
               kind: "spl",
-              symbol: shortAddress(mint.toBase58(), 4, 4),
+              symbol: label,
               tokenAddress: mint.toBase58(),
               rawAmount: total,
               decimals,
@@ -358,20 +443,26 @@ export default function MultiSend() {
         appendLog(`Ví ${shortAddress(address)} không có token SPL nào.`);
       }
 
-      merged.forEach((value, mint) => {
-        if (value.amount > 0n) {
-          tokens.push({
-            id: `${candidate.id}-${mint}`,
-            kind: "spl",
-            symbol: shortAddress(mint, 4, 4),
-            tokenAddress: mint,
-            rawAmount: value.amount,
-            decimals: value.decimals,
-            formatted: formatTokenAmount(value.amount, value.decimals),
-            selected: true,
-          });
+      for (const [mint, value] of merged.entries()) {
+        if (value.amount <= 0n) continue;
+        let metadata: SolTokenMetadata | null = null;
+        try {
+          metadata = await fetchSolTokenMetadata(conn, new PublicKey(mint));
+        } catch (metaErr: any) {
+          appendLog(`Không lấy được metadata cho ${mint}: ${metaErr?.message || String(metaErr)}`);
         }
-      });
+        const label = formatMintLabel(mint, metadata);
+        tokens.push({
+          id: `${candidate.id}-${mint}`,
+          kind: "spl",
+          symbol: label,
+          tokenAddress: mint,
+          rawAmount: value.amount,
+          decimals: value.decimals,
+          formatted: formatTokenAmount(value.amount, value.decimals),
+          selected: true,
+        });
+      }
     }
 
     return {
