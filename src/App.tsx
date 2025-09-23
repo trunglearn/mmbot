@@ -3,10 +3,11 @@ import React, { useState } from "react";
 import BscSwap from "./BscSwap";
 import SolSwap from "./SolSwap";
 import SuiSwapCetus from "./SuiSwapCetus";
+import MultiSend from "./MultiSend";
 import FourMemeBuy from "./FourMemeBuy";
 
 
-type TabKey = "sol" | "bsc" | "sui" | "formeme";
+type TabKey = "sol" | "bsc" | "sui" | "multi" | "formeme";
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("sol");
@@ -18,7 +19,8 @@ function App() {
     } else if (activeTab === "formeme") {
       return <FourMemeBuy />;
     } else {
-      return <SuiSwapCetus />;
+      if (activeTab === "sui") return <SuiSwapCetus />;
+      return <MultiSend />;
     }
   };
 
@@ -50,6 +52,12 @@ function App() {
             className={`flex-1 py-3 text-center font-medium ${activeTab === "formeme" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
           >
             FORMEME
+          </button>
+          <button
+            onClick={() => setActiveTab("multi")}
+            className={`flex-1 py-3 text-center font-medium ${activeTab === "multi" ? "bg-white text-green-900" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
+          >
+            Multi Send
           </button>
         </div>
 
