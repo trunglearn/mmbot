@@ -12,6 +12,7 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
   getAssociatedTokenAddress,
@@ -279,42 +280,98 @@ export default function MultiSend() {
     const balanceLamports = BigInt(await conn.getBalance(keypair.publicKey, "confirmed"));
 
     const tokens: TokenEntry[] = [];
-    tokens.push({
-      id: `${candidate.id}-SOL`,
-      kind: "native",
-      symbol: "SOL",
-      rawAmount: balanceLamports,
-      decimals: 9,
-      formatted: formatTokenAmount(balanceLamports, 9),
-      selected: balanceLamports > 0n,
-    });
+    if (balanceLamports > 0n) {
+      tokens.push({
+        id: `${candidate.id}-SOL`,
+        kind: "native",
+        symbol: "SOL",
+        rawAmount: balanceLamports,
+        decimals: 9,
+        formatted: formatTokenAmount(balanceLamports, 9),
+        selected: true,
+      });
+    }
 
-    for (const token of candidate.tokens) {
-      try {
-        const mint = new PublicKey(token);
-        const parsed = await conn.getParsedTokenAccountsByOwner(keypair.publicKey, { mint }, "confirmed");
-        let total = 0n;
-        let decimals = 0;
-        if (parsed.value.length > 0) {
-          const tokenAmount = parsed.value[0].account.data.parsed.info.tokenAmount;
-          decimals = tokenAmount.decimals ?? 0;
-          total = BigInt(tokenAmount.amount);
+    const requestedTokens = candidate.tokens.map((t) => t.trim()).filter(Boolean);
+    appendLog(requestedTokens.length)
+    if (requestedTokens.length > 0) {
+      for (const token of requestedTokens) {
+        if (token.toUpperCase() === "SOL") continue;
+        try {
+          const mint = new PublicKey(token);
+          const parsed = await conn.getParsedTokenAccountsByOwner(
+            keypair.publicKey,
+            { mint },
+            "confirmed"
+          );
+          let total = 0n;
+          let decimals = 0;
+          if (parsed.value.length > 0) {
+            const tokenAmount = parsed.value[0].account.data.parsed.info.tokenAmount;
+            decimals = tokenAmount.decimals ?? 0;
+            total = BigInt(tokenAmount.amount);
+          }
+          const formatted = decimals >= 0 ? formatTokenAmount(total, decimals) : total.toString();
+          if (total > 0n) {
+            tokens.push({
+              id: `${candidate.id}-${mint.toBase58()}`,
+              kind: "spl",
+              symbol: shortAddress(mint.toBase58(), 4, 4),
+              tokenAddress: mint.toBase58(),
+              rawAmount: total,
+              decimals,
+              formatted,
+              selected: true,
+            });
+          } else {
+            appendLog(`Token ${token} trong ví ${shortAddress(address)} có số dư 0 — bỏ qua.`);
+          }
+        } catch (err: any) {
+          appendLog(`Không đọc được token SPL ${token}: ${err?.message || String(err)}`);
         }
-        const formatted = decimals >= 0 ? formatTokenAmount(total, decimals) : total.toString();
-        tokens.push({
-          id: `${candidate.id}-${mint.toBase58()}`,
-          kind: "spl",
-          symbol: shortAddress(mint.toBase58(), 4, 4),
-          tokenAddress: mint.toBase58(),
-          rawAmount: total,
-          decimals,
-          formatted,
-          selected: total > 0n,
-          status: parsed.value.length === 0 ? "Không có token account" : undefined,
-        });
-      } catch (err: any) {
-        appendLog(`Không đọc được token SPL ${token}: ${err?.message || String(err)}`);
       }
+    } else {
+      const merged = new Map<string, { amount: bigint; decimals: number }>();
+      const solPrograms = [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
+      for (const programId of solPrograms) {
+        const parsed = await conn.getParsedTokenAccountsByOwner(
+          keypair.publicKey,
+          { programId },
+          "confirmed"
+        );
+        parsed.value.forEach((entry) => {
+          const info = entry.account.data.parsed.info;
+          const mint = info.mint as string;
+          const amountInfo = info.tokenAmount;
+          const decimals = amountInfo.decimals ?? 0;
+          const amount = BigInt(amountInfo.amount);
+          const existing = merged.get(mint);
+          if (existing) {
+            merged.set(mint, { amount: existing.amount + amount, decimals });
+          } else {
+            merged.set(mint, { amount, decimals });
+          }
+        });
+      }
+
+      if (merged.size === 0) {
+        appendLog(`Ví ${shortAddress(address)} không có token SPL nào.`);
+      }
+
+      merged.forEach((value, mint) => {
+        if (value.amount > 0n) {
+          tokens.push({
+            id: `${candidate.id}-${mint}`,
+            kind: "spl",
+            symbol: shortAddress(mint, 4, 4),
+            tokenAddress: mint,
+            rawAmount: value.amount,
+            decimals: value.decimals,
+            formatted: formatTokenAmount(value.amount, value.decimals),
+            selected: true,
+          });
+        }
+      });
     }
 
     return {
@@ -339,17 +396,20 @@ export default function MultiSend() {
     const address = Web3.utils.toChecksumAddress(account.address);
     const balanceWei = BigInt(await web3.eth.getBalance(address));
 
-    const tokens: TokenEntry[] = [
-      {
+    const tokens: TokenEntry[] = [];
+    if (balanceWei > 0n) {
+      tokens.push({
         id: `${candidate.id}-BNB`,
         kind: "native",
         symbol: "BNB",
         rawAmount: balanceWei,
         decimals: 18,
         formatted: formatTokenAmount(balanceWei, 18),
-        selected: balanceWei > 0n,
-      },
-    ];
+        selected: true,
+      });
+    } else {
+      appendLog(`Ví ${shortAddress(address)} không có BNB khả dụng.`);
+    }
 
     for (const token of candidate.tokens) {
       try {
@@ -366,16 +426,20 @@ export default function MultiSend() {
         ]);
         const decimals = Number(decimalsStr) || 0;
         const balanceBig = BigInt(balanceStr);
-        tokens.push({
-          id: `${candidate.id}-${checksum}`,
-          kind: "bep20",
-          symbol,
-          tokenAddress: checksum,
-          rawAmount: balanceBig,
-          decimals,
-          formatted: formatTokenAmount(balanceBig, decimals),
-          selected: balanceBig > 0n,
-        });
+        if (balanceBig > 0n) {
+          tokens.push({
+            id: `${candidate.id}-${checksum}`,
+            kind: "bep20",
+            symbol,
+            tokenAddress: checksum,
+            rawAmount: balanceBig,
+            decimals,
+            formatted: formatTokenAmount(balanceBig, decimals),
+            selected: true,
+          });
+        } else {
+          appendLog(`Token ${checksum} trong ví ${shortAddress(address)} có số dư 0 — bỏ qua.`);
+        }
       } catch (err: any) {
         appendLog(`Không thể đọc token ${token} trên BSC: ${err?.message || String(err)}`);
       }
