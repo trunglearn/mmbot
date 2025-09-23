@@ -1,60 +1,16 @@
 import React, { useCallback, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
-import bs58 from "bs58";
-import { Buffer } from "buffer";
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  sendAndConfirmTransaction,
-} from "@solana/web3.js";
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
-  createAssociatedTokenAccountInstruction,
-  createTransferInstruction,
-  getAssociatedTokenAddress,
-} from "@solana/spl-token";
-import { Web3 } from "web3";
-import {
-  BSC_ENDPOINTS,
-  ERC20_ABI,
-  NETWORKS,
-  type BscNet,
-  type NetKey,
-} from "./constants";
+import { type BscNet, type NetKey } from "./constants";
 import type {
-  ChainKind,
   NetworkDescriptor,
   ParsedRow,
   TokenEntry,
   WalletCandidate,
   WalletInfo,
 } from "./type/multiSend";
-
-const formatTokenAmount = (amount: bigint, decimals: number, precision = 6) => {
-  if (amount === 0n) return "0";
-  if (decimals === 0) return amount.toString();
-  const negative = amount < 0n;
-  const absAmount = negative ? -amount : amount;
-  const base = 10n ** BigInt(decimals);
-  const integerPart = absAmount / base;
-  let fractionPart = absAmount % base;
-  if (fractionPart === 0n) {
-    return `${negative ? "-" : ""}${integerPart.toString()}`;
-  }
-  const fractionStrRaw = fractionPart.toString().padStart(decimals, "0");
-  const fractionStr = fractionStrRaw.slice(0, precision).replace(/0+$/, "");
-  return `${negative ? "-" : ""}${integerPart.toString()}${fractionStr ? "." + fractionStr : ""}`;
-};
-
-const shortAddress = (addr: string, head = 6, tail = 4) => {
-  if (addr.length <= head + tail + 3) return addr;
-  return `${addr.slice(0, head)}...${addr.slice(-tail)}`;
-};
+import { formatTokenAmount, shortAddress, uniqueTokens } from "./utils/token";
+import { hydrateSolWallet, sendSolanaTokens } from "./solana/solanaMultiSendService";
+import { hydrateBscWallet, sendBscTokens } from "./bsc/bscMultiSendService";
 
 const classifyNetwork = (raw: string): NetworkDescriptor | null => {
   const normalized = (raw || "").trim().toLowerCase();
@@ -68,97 +24,6 @@ const classifyNetwork = (raw: string): NetworkDescriptor | null => {
     return { chain: "bsc", bscNet };
   }
   return null;
-};
-
-const normalizeEvmPrivateKey = (raw: string) => {
-  const trimmed = raw.trim();
-  if (!trimmed) throw new Error("Private key trống");
-  const prefixed = trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
-  if (!/^0x[0-9a-fA-F]{64}$/.test(prefixed)) {
-    throw new Error("Private key BSC phải là hex 64 ký tự (có/không '0x').");
-  }
-  return prefixed as `0x${string}`;
-};
-
-const uniqueTokens = (tokens: string[]) => {
-  const set = new Set(tokens.map((t) => t.trim()).filter(Boolean));
-  return Array.from(set);
-};
-
-const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
-
-type SolTokenMetadata = {
-  name?: string;
-  symbol?: string;
-};
-
-const metadataCache = new Map<string, SolTokenMetadata | null>();
-
-const readRustString = (buffer: Buffer, offset: number) => {
-  if (buffer.length < offset + 4) {
-    return { value: "", offset };
-  }
-  const len = buffer.readUInt32LE(offset);
-  let cursor = offset + 4;
-  const end = cursor + len;
-  if (buffer.length < end) {
-    const value = buffer.slice(cursor).toString("utf8").replace(/\0/g, "").trim();
-    return { value, offset: buffer.length };
-  }
-  const value = buffer.slice(cursor, end).toString("utf8").replace(/\0/g, "").trim();
-  return { value, offset: end };
-};
-
-const fetchSolTokenMetadata = async (
-  conn: Connection,
-  mint: PublicKey
-): Promise<SolTokenMetadata | null> => {
-  const key = mint.toBase58();
-  if (metadataCache.has(key)) {
-    return metadataCache.get(key) ?? null;
-  }
-
-  try {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata"), TOKEN_METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-      TOKEN_METADATA_PROGRAM_ID
-    );
-    const account = await conn.getAccountInfo(pda, "confirmed");
-    if (!account) {
-      metadataCache.set(key, null);
-      return null;
-    }
-
-    const buffer = Buffer.from(account.data);
-    if (buffer.length < 66) {
-      metadataCache.set(key, null);
-      return null;
-    }
-
-    let cursor = 1 + 32 + 32; // key + updateAuthority + mint
-    const nameRes = readRustString(buffer, cursor);
-    cursor = nameRes.offset;
-    const symbolRes = readRustString(buffer, cursor);
-
-    const metadata: SolTokenMetadata = {
-      name: nameRes.value,
-      symbol: symbolRes.value,
-    };
-    metadataCache.set(key, metadata);
-    return metadata;
-  } catch (err) {
-    console.warn("Failed to fetch metadata for", key, err);
-    metadataCache.set(key, null);
-    return null;
-  }
-};
-
-const formatMintLabel = (mint: string, metadata: SolTokenMetadata | null | undefined) => {
-  const symbol = metadata?.symbol?.trim();
-  if (symbol) return symbol;
-  const name = metadata?.name?.trim();
-  if (name) return name;
-  return shortAddress(mint, 4, 4);
 };
 
 export default function MultiSend() {
@@ -309,210 +174,9 @@ export default function MultiSend() {
 
   const hydrateWallet = async (candidate: WalletCandidate): Promise<WalletInfo> => {
     if (candidate.chain === "sol") {
-      return hydrateSolWallet(candidate);
+      return hydrateSolWallet(candidate, appendLog);
     }
-    return hydrateBscWallet(candidate);
-  };
-
-  const hydrateSolWallet = async (candidate: WalletCandidate): Promise<WalletInfo> => {
-    const netKey = candidate.solNet ?? "mainnet";
-    const conn = new Connection(NETWORKS[netKey].rpc, "confirmed");
-    const secret = bs58.decode(candidate.privateKey.trim());
-    const keypair = Keypair.fromSecretKey(secret);
-    const address = keypair.publicKey.toBase58();
-    const balanceLamports = BigInt(await conn.getBalance(keypair.publicKey, "confirmed"));
-
-    const tokens: TokenEntry[] = [];
-    if (balanceLamports > 0n) {
-      tokens.push({
-        id: `${candidate.id}-SOL`,
-        kind: "native",
-        symbol: "SOL",
-        rawAmount: balanceLamports,
-        decimals: 9,
-        formatted: formatTokenAmount(balanceLamports, 9),
-        selected: true,
-      });
-    }
-
-    const requestedTokens = candidate.tokens.map((t) => t.trim()).filter(Boolean);
-    if (requestedTokens.length > 0) {
-      for (const token of requestedTokens) {
-        if (token.toUpperCase() === "SOL") continue;
-        try {
-          const mint = new PublicKey(token);
-          const parsed = await conn.getParsedTokenAccountsByOwner(
-            keypair.publicKey,
-            { mint },
-            "confirmed"
-          );
-          let total = 0n;
-          let decimals = 0;
-          if (parsed.value.length > 0) {
-            const tokenAmount = parsed.value[0].account.data.parsed.info.tokenAmount;
-            decimals = tokenAmount.decimals ?? 0;
-            total = BigInt(tokenAmount.amount);
-          }
-          const formatted = decimals >= 0 ? formatTokenAmount(total, decimals) : total.toString();
-          if (total > 0n) {
-            let metadata: SolTokenMetadata | null = null;
-            try {
-              metadata = await fetchSolTokenMetadata(conn, mint);
-            } catch (metaErr: any) {
-              appendLog(
-                `Không lấy được metadata cho ${mint.toBase58()}: ${metaErr?.message || String(metaErr)}`
-              );
-            }
-            const label = formatMintLabel(mint.toBase58(), metadata);
-            tokens.push({
-              id: `${candidate.id}-${mint.toBase58()}`,
-              kind: "spl",
-              symbol: label,
-              tokenAddress: mint.toBase58(),
-              rawAmount: total,
-              decimals,
-              formatted,
-              selected: true,
-            });
-          } else {
-            appendLog(`Token ${token} trong ví ${shortAddress(address)} có số dư 0 — bỏ qua.`);
-          }
-        } catch (err: any) {
-          appendLog(`Không đọc được token SPL ${token}: ${err?.message || String(err)}`);
-        }
-      }
-    } else {
-      const merged = new Map<string, { amount: bigint; decimals: number }>();
-      const solPrograms = [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
-      for (const programId of solPrograms) {
-        const parsed = await conn.getParsedTokenAccountsByOwner(
-          keypair.publicKey,
-          { programId },
-          "confirmed"
-        );
-        parsed.value.forEach((entry) => {
-          const info = entry.account.data.parsed.info;
-          const mint = info.mint as string;
-          const amountInfo = info.tokenAmount;
-          const decimals = amountInfo.decimals ?? 0;
-          const amount = BigInt(amountInfo.amount);
-          const existing = merged.get(mint);
-          if (existing) {
-            merged.set(mint, { amount: existing.amount + amount, decimals });
-          } else {
-            merged.set(mint, { amount, decimals });
-          }
-        });
-      }
-
-      if (merged.size === 0) {
-        appendLog(`Ví ${shortAddress(address)} không có token SPL nào.`);
-      }
-
-      for (const [mint, value] of merged.entries()) {
-        if (value.amount <= 0n) continue;
-        let metadata: SolTokenMetadata | null = null;
-        try {
-          metadata = await fetchSolTokenMetadata(conn, new PublicKey(mint));
-        } catch (metaErr: any) {
-          appendLog(`Không lấy được metadata cho ${mint}: ${metaErr?.message || String(metaErr)}`);
-        }
-        const label = formatMintLabel(mint, metadata);
-        tokens.push({
-          id: `${candidate.id}-${mint}`,
-          kind: "spl",
-          symbol: label,
-          tokenAddress: mint,
-          rawAmount: value.amount,
-          decimals: value.decimals,
-          formatted: formatTokenAmount(value.amount, value.decimals),
-          selected: true,
-        });
-      }
-    }
-
-    return {
-      id: candidate.id,
-      chain: "sol",
-      solNet: netKey,
-      privateKey: candidate.privateKey,
-      rawNetwork: candidate.rawNetwork,
-      address,
-      displayAddress: shortAddress(address, 6, 4),
-      tokens,
-      loading: false,
-    };
-  };
-
-  const hydrateBscWallet = async (candidate: WalletCandidate): Promise<WalletInfo> => {
-    const netKey = candidate.bscNet ?? "mainnet";
-    const cfg = BSC_ENDPOINTS[netKey];
-    const priv = normalizeEvmPrivateKey(candidate.privateKey);
-    const web3 = new Web3(cfg.rpc);
-    const account = web3.eth.accounts.privateKeyToAccount(priv);
-    const address = Web3.utils.toChecksumAddress(account.address);
-    const balanceWei = BigInt(await web3.eth.getBalance(address));
-
-    const tokens: TokenEntry[] = [];
-    if (balanceWei > 0n) {
-      tokens.push({
-        id: `${candidate.id}-BNB`,
-        kind: "native",
-        symbol: "BNB",
-        rawAmount: balanceWei,
-        decimals: 18,
-        formatted: formatTokenAmount(balanceWei, 18),
-        selected: true,
-      });
-    } else {
-      appendLog(`Ví ${shortAddress(address)} không có BNB khả dụng.`);
-    }
-
-    for (const token of candidate.tokens) {
-      try {
-        if (!Web3.utils.isAddress(token)) {
-          appendLog(`Token ${token} không phải địa chỉ BEP-20 hợp lệ.`);
-          continue;
-        }
-        const checksum = Web3.utils.toChecksumAddress(token);
-        const contract = new web3.eth.Contract(ERC20_ABI as any, checksum);
-        const [symbol, decimalsStr, balanceStr] = await Promise.all([
-          contract.methods.symbol().call().catch(() => shortAddress(checksum, 4, 4)),
-          contract.methods.decimals().call().catch(() => "18"),
-          contract.methods.balanceOf(address).call().catch(() => "0"),
-        ]);
-        const decimals = Number(decimalsStr) || 0;
-        const balanceBig = BigInt(balanceStr);
-        if (balanceBig > 0n) {
-          tokens.push({
-            id: `${candidate.id}-${checksum}`,
-            kind: "bep20",
-            symbol,
-            tokenAddress: checksum,
-            rawAmount: balanceBig,
-            decimals,
-            formatted: formatTokenAmount(balanceBig, decimals),
-            selected: true,
-          });
-        } else {
-          appendLog(`Token ${checksum} trong ví ${shortAddress(address)} có số dư 0 — bỏ qua.`);
-        }
-      } catch (err: any) {
-        appendLog(`Không thể đọc token ${token} trên BSC: ${err?.message || String(err)}`);
-      }
-    }
-
-    return {
-      id: candidate.id,
-      chain: "bsc",
-      bscNet: netKey,
-      privateKey: candidate.privateKey,
-      rawNetwork: candidate.rawNetwork,
-      address,
-      displayAddress: shortAddress(address, 6, 4),
-      tokens,
-      loading: false,
-    };
+    return hydrateBscWallet(candidate, appendLog);
   };
 
   const toggleTokenSelection = (walletId: string, tokenId: string, selected: boolean) => {
@@ -570,9 +234,21 @@ export default function MultiSend() {
 
       try {
         if (wallet.chain === "sol") {
-          await sendSolTokens(wallet, activeTokens, trimmedReceive);
+          await sendSolanaTokens({
+            wallet,
+            tokens: activeTokens,
+            destination: trimmedReceive,
+            appendLog,
+            updateBalance: updateTokenBalance,
+          });
         } else {
-          await sendBscTokens(wallet, activeTokens, trimmedReceive);
+          await sendBscTokens({
+            wallet,
+            tokens: activeTokens,
+            destination: trimmedReceive,
+            appendLog,
+            updateBalance: updateTokenBalance,
+          });
         }
       } catch (err: any) {
         appendLog(`❌ Lỗi khi gửi từ ví ${wallet.displayAddress ?? wallet.address}: ${err?.message || String(err)}`);
@@ -581,215 +257,6 @@ export default function MultiSend() {
 
     appendLog("Hoàn tất tiến trình gửi.");
     setSending(false);
-  };
-
-  const sendSolTokens = async (wallet: WalletInfo, tokens: TokenEntry[], destination: string) => {
-    if (!wallet.solNet) throw new Error("Thiếu thông tin network Solana.");
-    let destPubkey: PublicKey;
-    try {
-      destPubkey = new PublicKey(destination);
-    } catch {
-      appendLog(`Địa chỉ nhận không hợp lệ cho Solana: ${destination}`);
-      return;
-    }
-
-    const conn = new Connection(NETWORKS[wallet.solNet].rpc, "confirmed");
-    const secret = bs58.decode(wallet.privateKey.trim());
-    const owner = Keypair.fromSecretKey(secret);
-
-    for (const token of tokens) {
-      try {
-        if (token.kind === "native") {
-          await sendSolNative(conn, owner, destPubkey, token.rawAmount, wallet.id, token.id);
-        } else if (token.kind === "spl" && token.tokenAddress) {
-          await sendSplToken(conn, owner, destPubkey, wallet.id, token);
-        } else {
-          appendLog(`Token ${token.symbol} không hỗ trợ gửi trên Solana.`);
-        }
-      } catch (err: any) {
-        appendLog(
-          `❌ Lỗi gửi token ${token.symbol} từ ${wallet.displayAddress ?? wallet.address}: ${
-            err?.message || String(err)
-          }`
-        );
-      }
-    }
-  };
-
-  const sendSolNative = async (
-    conn: Connection,
-    owner: Keypair,
-    destination: PublicKey,
-    rawAmount: bigint,
-    walletId: string,
-    tokenId: string
-  ) => {
-    const feeReserve = 10000n; // ~0.00001 SOL
-    if (rawAmount <= feeReserve) {
-      appendLog(`Ví ${owner.publicKey.toBase58()} không đủ SOL để trừ phí.`);
-      return;
-    }
-    const lamportsToSend = rawAmount - feeReserve;
-    const tx = new Transaction().add(
-      SystemProgram.transfer({
-        fromPubkey: owner.publicKey,
-        toPubkey: destination,
-        lamports: Number(lamportsToSend),
-      })
-    );
-    tx.feePayer = owner.publicKey;
-    tx.recentBlockhash = (await conn.getLatestBlockhash("confirmed")).blockhash;
-    tx.sign(owner);
-    appendLog(
-      `Gửi ${formatTokenAmount(lamportsToSend, 9)} SOL từ ${shortAddress(owner.publicKey.toBase58())}…`
-    );
-    const signature = await sendAndConfirmTransaction(conn, tx, [owner], { skipPreflight: false });
-    appendLog(`✅ Tx SOL: ${signature}`);
-    updateTokenBalance(walletId, tokenId, 0n, 9);
-  };
-
-  const sendSplToken = async (
-    conn: Connection,
-    owner: Keypair,
-    destination: PublicKey,
-    walletId: string,
-    token: TokenEntry
-  ) => {
-    if (!token.tokenAddress) return;
-    const mint = new PublicKey(token.tokenAddress);
-    const sourceAta = await getAssociatedTokenAddress(mint, owner.publicKey, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
-    const destAta = await getAssociatedTokenAddress(mint, destination, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
-
-    const ix: Parameters<Transaction["add"]>[0][] = [];
-    const destInfo = await conn.getAccountInfo(destAta, "confirmed");
-    if (!destInfo) {
-      ix.push(
-        createAssociatedTokenAccountInstruction(
-          owner.publicKey,
-          destAta,
-          destination,
-          mint,
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )
-      );
-    }
-    ix.push(createTransferInstruction(sourceAta, destAta, owner.publicKey, token.rawAmount, [], TOKEN_PROGRAM_ID));
-
-    const tx = new Transaction().add(...ix);
-    tx.feePayer = owner.publicKey;
-    tx.recentBlockhash = (await conn.getLatestBlockhash("confirmed")).blockhash;
-    tx.sign(owner);
-
-    appendLog(`Gửi ${token.formatted} ${token.symbol} (SPL) từ ${shortAddress(owner.publicKey.toBase58())}…`);
-    const signature = await sendAndConfirmTransaction(conn, tx, [owner], { skipPreflight: false });
-    appendLog(`✅ Tx SPL ${token.symbol}: ${signature}`);
-    updateTokenBalance(walletId, token.id, 0n, token.decimals);
-  };
-
-  const sendBscTokens = async (wallet: WalletInfo, tokens: TokenEntry[], destination: string) => {
-    if (!wallet.bscNet) throw new Error("Thiếu thông tin network BSC.");
-    if (!Web3.utils.isAddress(destination)) {
-      appendLog(`Địa chỉ nhận không hợp lệ cho BSC: ${destination}`);
-      return;
-    }
-    const cfg = BSC_ENDPOINTS[wallet.bscNet];
-    const priv = normalizeEvmPrivateKey(wallet.privateKey);
-    const web3 = new Web3(cfg.rpc);
-    const account = web3.eth.accounts.privateKeyToAccount(priv);
-
-    for (const token of tokens) {
-      try {
-        if (token.kind === "native") {
-          await sendBnb(web3, account, destination, cfg.chainId, wallet.id, token.id, token.rawAmount);
-        } else if (token.kind === "bep20" && token.tokenAddress) {
-          await sendBep20Token(web3, account, destination, cfg.chainId, wallet.id, token);
-        } else {
-          appendLog(`Token ${token.symbol} không hỗ trợ gửi trên BSC.`);
-        }
-      } catch (err: any) {
-        appendLog(
-          `❌ Lỗi gửi token ${token.symbol} từ ${wallet.displayAddress ?? wallet.address}: ${
-            err?.message || String(err)
-          }`
-        );
-      }
-    }
-  };
-
-  const sendBnb = async (
-    web3: Web3,
-    account: any,
-    destination: string,
-    chainId: number,
-    walletId: string,
-    tokenId: string,
-    rawAmount: bigint
-  ) => {
-    const gasPrice = BigInt(await web3.eth.getGasPrice());
-    const gasLimit = 21000n;
-    const fee = gasPrice * gasLimit;
-    if (rawAmount <= fee) {
-      appendLog(`Ví ${account.address} không đủ BNB để trả phí gas.`);
-      return;
-    }
-    const value = rawAmount - fee;
-    const nonce = await web3.eth.getTransactionCount(account.address, "pending");
-
-    const tx = {
-      to: destination,
-      value: `0x${value.toString(16)}`,
-      gas: `0x${gasLimit.toString(16)}`,
-      gasPrice: `0x${gasPrice.toString(16)}`,
-      nonce: `0x${nonce.toString(16)}`,
-      chainId,
-    } as const;
-
-    appendLog(`Gửi ${formatTokenAmount(value, 18)} BNB từ ${shortAddress(account.address)}…`);
-    const signed = await account.signTransaction(tx);
-    if (!signed.rawTransaction) throw new Error("Không ký được giao dịch BNB.");
-    const receipt = await web3.eth.sendSignedTransaction(signed.rawTransaction);
-    appendLog(`✅ Tx BNB: ${receipt.transactionHash}`);
-    updateTokenBalance(walletId, tokenId, 0n, 18);
-  };
-
-  const sendBep20Token = async (
-    web3: Web3,
-    account: any,
-    destination: string,
-    chainId: number,
-    walletId: string,
-    token: TokenEntry
-  ) => {
-    if (!token.tokenAddress) return;
-    const contract = new web3.eth.Contract(ERC20_ABI as any, token.tokenAddress);
-    const data = contract.methods.transfer(destination, token.rawAmount.toString()).encodeABI();
-    let gas: bigint;
-    try {
-      const estimated = await contract.methods.transfer(destination, token.rawAmount.toString()).estimateGas({
-        from: account.address,
-      });
-      gas = BigInt(estimated) + 10000n; // buffer
-    } catch {
-      gas = 150000n;
-    }
-    const gasPrice = BigInt(await web3.eth.getGasPrice());
-    const nonce = await web3.eth.getTransactionCount(account.address, "pending");
-    const tx = {
-      to: token.tokenAddress,
-      data,
-      value: "0x0",
-      gas: `0x${gas.toString(16)}`,
-      gasPrice: `0x${gasPrice.toString(16)}`,
-      nonce: `0x${nonce.toString(16)}`,
-      chainId,
-    } as const;
-    appendLog(`Gửi ${token.formatted} ${token.symbol} từ ${shortAddress(account.address)}…`);
-    const signed = await account.signTransaction(tx);
-    if (!signed.rawTransaction) throw new Error("Không ký được giao dịch token.");
-    const receipt = await web3.eth.sendSignedTransaction(signed.rawTransaction);
-    appendLog(`✅ Tx ${token.symbol}: ${receipt.transactionHash}`);
-    updateTokenBalance(walletId, token.id, 0n, token.decimals);
   };
 
   const updateTokenBalance = (walletId: string, tokenId: string, rawAmount: bigint, decimals: number) => {
