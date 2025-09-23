@@ -10,6 +10,7 @@ export const NETWORKS = {
     swapHost: "https://transaction-v1.raydium.io",
     feeEndpoint: `${API_URLS.BASE_HOST}${API_URLS.PRIORITY_FEE}`,
     explorerClusterQS: "",
+    pumpFunSwap: "https://necessary-cool-waterfall.solana-mainnet.quiknode.pro/pump-fun/swap",
   },
   devnet: {
     rpc: "https://necessary-cool-waterfall.solana-devnet.quiknode.pro/f965569b37ae159010d579b803fdbcb2042f4091",
@@ -18,6 +19,7 @@ export const NETWORKS = {
     swapHost: "https://transaction-v1-devnet.raydium.io",
     feeEndpoint: `${API_URLS.BASE_HOST}${API_URLS.PRIORITY_FEE}`,
     explorerClusterQS: "?cluster=devnet",
+    pumpFunSwap: "https://necessary-cool-waterfall.solana-devnet.quiknode.pro/pump-fun/swap",
   },
 } as const;
 export type NetKey = keyof typeof NETWORKS;
