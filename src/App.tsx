@@ -3,9 +3,10 @@ import React, { useState } from "react";
 import BscSwap from "./BscSwap";
 import SolSwap from "./SolSwap";
 import SuiSwapCetus from "./SuiSwapCetus";
+import FourMemeBuy from "./FourMemeBuy";
 
 
-type TabKey = "sol" | "bsc" | "sui";
+type TabKey = "sol" | "bsc" | "sui" | "formeme";
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("sol");
@@ -14,6 +15,8 @@ function App() {
       return <SolSwap />;
     } else if (activeTab === "bsc") {
       return <BscSwap />;
+    } else if (activeTab === "formeme") {
+      return <FourMemeBuy />;
     } else {
       return <SuiSwapCetus />;
     }
@@ -41,6 +44,12 @@ function App() {
             className={`flex-1 py-3 text-center font-medium ${activeTab === "sui" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
           >
             SUI · Cetus
+          </button>
+          <button
+            onClick={() => setActiveTab("formeme")}
+            className={`flex-1 py-3 text-center font-medium ${activeTab === "formeme" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
+          >
+            FORMEME
           </button>
         </div>
 
