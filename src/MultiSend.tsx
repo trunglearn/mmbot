@@ -19,55 +19,21 @@ import {
   getAssociatedTokenAddress,
 } from "@solana/spl-token";
 import { Web3 } from "web3";
-import { BSC_ENDPOINTS, BscNet, ERC20_ABI, NETWORKS, NetKey } from "./constants";
-
-type ChainKind = "sol" | "bsc";
-
-type ParsedRow = {
-  network: string;
-  privateKey: string;
-  token: string;
-};
-
-type WalletCandidate = {
-  id: string;
-  chain: ChainKind;
-  solNet?: NetKey;
-  bscNet?: BscNet;
-  privateKey: string;
-  rawNetwork: string;
-  tokens: string[];
-};
-
-type TokenEntry = {
-  id: string;
-  kind: "native" | "spl" | "bep20";
-  symbol: string;
-  tokenAddress?: string;
-  rawAmount: bigint;
-  decimals: number;
-  formatted: string;
-  selected: boolean;
-  status?: string;
-};
-
-type WalletInfo = {
-  id: string;
-  chain: ChainKind;
-  solNet?: NetKey;
-  bscNet?: BscNet;
-  privateKey: string;
-  rawNetwork: string;
-  address?: string;
-  displayAddress?: string;
-  tokens: TokenEntry[];
-  loading: boolean;
-  error?: string;
-};
-
-type NetworkDescriptor =
-  | { chain: "sol"; solNet: NetKey }
-  | { chain: "bsc"; bscNet: BscNet };
+import {
+  BSC_ENDPOINTS,
+  ERC20_ABI,
+  NETWORKS,
+  type BscNet,
+  type NetKey,
+} from "./constants";
+import type {
+  ChainKind,
+  NetworkDescriptor,
+  ParsedRow,
+  TokenEntry,
+  WalletCandidate,
+  WalletInfo,
+} from "./type/multiSend";
 
 const formatTokenAmount = (amount: bigint, decimals: number, precision = 6) => {
   if (amount === 0n) return "0";
