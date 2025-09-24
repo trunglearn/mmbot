@@ -4,10 +4,10 @@ import BscSwap from "./BscSwap";
 import SolSwap from "./SolSwap";
 import SuiSwapCetus from "./SuiSwapCetus";
 import MultiSend from "./MultiSend";
+import PumpFunBuy from "./PumpFunBuy";
 import FourMemeBuy from "./FourMemeBuy";
 
-
-type TabKey = "sol" | "bsc" | "sui" | "multi" | "formeme";
+type TabKey = "sol" | "bsc" | "sui" | "multi" | "formeme" | "pump";
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("sol");
@@ -18,10 +18,11 @@ function App() {
       return <BscSwap />;
     } else if (activeTab === "formeme") {
       return <FourMemeBuy />;
-    } else {
-      if (activeTab === "sui") return <SuiSwapCetus />;
-      return <MultiSend />;
+    } else if (activeTab === "pump") {
+      return <PumpFunBuy />;
     }
+    if (activeTab === "sui") return <SuiSwapCetus />;
+    if (activeTab === "multi") return <MultiSend />;
   };
 
   return (
@@ -58,6 +59,12 @@ function App() {
             className={`flex-1 py-3 text-center font-medium ${activeTab === "multi" ? "bg-white text-green-900" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
           >
             Multi Send
+          </button>
+          <button
+            onClick={() => setActiveTab("pump")}
+            className={`flex-1 py-3 text-center font-medium ${activeTab === "pump" ? "bg-white text-purple-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
+          >
+            Pump.fun Buy
           </button>
         </div>
 
