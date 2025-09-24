@@ -5,9 +5,9 @@ import SolSwap from "./SolSwap";
 import SuiSwapCetus from "./SuiSwapCetus";
 import MultiSend from "./MultiSend";
 import PumpFunBuy from "./PumpFunBuy";
+import FourMemeBuy from "./FourMemeBuy";
 
-
-type TabKey = "sol" | "bsc" | "sui" | "multi" | "pump";
+type TabKey = "sol" | "bsc" | "sui" | "multi" | "formeme" | "pump";
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("sol");
@@ -16,10 +16,13 @@ function App() {
       return <SolSwap />;
     } else if (activeTab === "bsc") {
       return <BscSwap />;
+    } else if (activeTab === "formeme") {
+      return <FourMemeBuy />;
+    } else if (activeTab === "pump") {
+      return <PumpFunBuy />;
     }
     if (activeTab === "sui") return <SuiSwapCetus />;
     if (activeTab === "multi") return <MultiSend />;
-    return <PumpFunBuy />;
   };
 
   return (
@@ -44,6 +47,12 @@ function App() {
             className={`flex-1 py-3 text-center font-medium ${activeTab === "sui" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
           >
             SUI · Cetus
+          </button>
+          <button
+            onClick={() => setActiveTab("formeme")}
+            className={`flex-1 py-3 text-center font-medium ${activeTab === "formeme" ? "bg-white text-amber-700" : "bg-green-800/30 text-white hover:bg-green-800/50"}`}
+          >
+            FORMEME
           </button>
           <button
             onClick={() => setActiveTab("multi")}
