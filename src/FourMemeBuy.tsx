@@ -1,10 +1,3 @@
-// FourMemeBuy.tsx
-// FE-only buyer cho four.meme (06–09/2025).
-// Chỉ BY_FUNDS (AMAP). Tự động chọn route: TM *AMAP (BNB/quote=0) hoặc
-// - ERC20 pair: auto quyết định dùng Helper3.buyWithEth (nếu bạn chỉ có BNB / thiếu quote/allowance)
-//   hoặc dùng ERC20 trực tiếp (approve nếu cần).
-// npm i ethers lucide-react
-
 import React, { useState } from "react";
 import { Eye, EyeOff, Play } from "lucide-react";
 import { ethers } from "ethers";
@@ -382,12 +375,6 @@ export default function FourMemeBuy() {
                         />
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium mb-2">Route được chọn</label>
-                        <div className="text-xs text-gray-600">
-                            Ẩn trong UI – hệ thống tự chọn dựa vào <code>quote</code>, số dư quote &amp; allowance. Xem log bên dưới để biết route.
-                        </div>
-                    </div>
                 </div>
 
                 {/* Actions */}
