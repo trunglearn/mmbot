@@ -1,12 +1,3 @@
-// src/SuiSwapCetus.tsx
-// Single-file SUI → Token (Cetus) swap — QuickNode-first
-// - Mainnet: your QuickNode RPC
-// - Testnet: public fullnode
-// - Pool lookup: Cetus SDK v2
-// - Quote: SDK preSwap (simple & stable)
-// - Build swap payload via SDK, send via SDK.FullClient if available, else SuiClient
-// - Fetch final status via getTransactionBlock(options) to avoid "undefined"
-
 import React, { useMemo, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
